@@ -11,8 +11,6 @@
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 
-#include <aws/core/Aws.h>
-
 namespace ROCKSDB_NAMESPACE {
 
 TEST(CloudFileSystemTest, TestBucket) {
@@ -160,47 +158,48 @@ TEST(CloudFileSystemTest, TestInitialize) {
   ASSERT_EQ(cfs->GetDestObjectPath(), "/my_path");
 }
 
-TEST(CloudFileSystemTest, ConfigureAwsEnv) {
+TEST(CloudFileSystemTest, ConfigureGcpEnv) {
   std::unique_ptr<CloudFileSystem> cfs;
 
   ConfigOptions config_options;
   Status s = CloudFileSystem::CreateFromString(
-      config_options, "id=aws; keep_local_sst_files=true", &cfs);
-#ifdef USE_AWS
+      config_options, "id=gcp; keep_local_sst_files=true", &cfs);
+#ifdef USE_GCP
   ASSERT_OK(s);
   ASSERT_NE(cfs, nullptr);
-  ASSERT_STREQ(cfs->Name(), "aws");
+  ASSERT_STREQ(cfs->Name(), "gcp");
   auto copts = cfs->GetOptions<CloudFileSystemOptions>();
   ASSERT_NE(copts, nullptr);
   ASSERT_TRUE(copts->keep_local_sst_files);
   ASSERT_NE(cfs->GetStorageProvider(), nullptr);
   ASSERT_STREQ(cfs->GetStorageProvider()->Name(),
-               CloudStorageProviderImpl::kS3());
+               CloudStorageProviderImpl::kGcs());
 #else
   ASSERT_NOK(s);
   ASSERT_EQ(cfs, nullptr);
 #endif
 }
 
-TEST(CloudFileSystemTest, ConfigureS3Provider) {
+TEST(CloudFileSystemTest, ConfigureGcsProvider) {
   std::unique_ptr<CloudFileSystem> cfs;
 
   ConfigOptions config_options;
   Status s =
-      CloudFileSystem::CreateFromString(config_options, "provider=s3", &cfs);
+      CloudFileSystem::CreateFromString(config_options, "provider=gcs", &cfs);
   ASSERT_NOK(s);
   ASSERT_EQ(cfs, nullptr);
 
-#ifdef USE_AWS
+#ifdef USE_GCP
   ASSERT_OK(CloudFileSystem::CreateFromString(config_options,
-                                              "id=aws; provider=s3", &cfs));
-  ASSERT_STREQ(cfs->Name(), "aws");
+                                              "id=gcp; provider=gcs", &cfs));
+  ASSERT_STREQ(cfs->Name(), "gcp");
   ASSERT_NE(cfs->GetStorageProvider(), nullptr);
   ASSERT_STREQ(cfs->GetStorageProvider()->Name(),
-               CloudStorageProviderImpl::kS3());
+               CloudStorageProviderImpl::kGcs());
 #endif
 }
 
+/* kinesis
 // Test is disabled until we have a mock provider and authentication issues are
 // resolved
 TEST(CloudFileSystemTest, DISABLED_ConfigureKinesisController) {
@@ -239,11 +238,11 @@ TEST(CloudFileSystemTest, ConfigureKafkaController) {
   ASSERT_EQ(cfs, nullptr);
 #endif
 }
-
+*/
 }  // namespace ROCKSDB_NAMESPACE
+
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  Aws::InitAPI(Aws::SDKOptions());
   return RUN_ALL_TESTS();
 }

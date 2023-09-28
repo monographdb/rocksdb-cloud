@@ -28,6 +28,8 @@ class CloudFileSystemImpl : public CloudFileSystem {
 
  public:
   static int RegisterAwsObjects(ObjectLibrary& library, const std::string& arg);
+  static int RegisterGcpObjects(ObjectLibrary& library, const std::string& arg);
+
   // Constructor
   CloudFileSystemImpl(const CloudFileSystemOptions& options,
                       const std::shared_ptr<FileSystem>& base_fs,
@@ -151,7 +153,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
 
   // Find all live files based on cloud_manifest_ and local MANIFEST FILE
   // If local MANIFEST file doesn't exist, it will pull from cloud
-  // 
+  //
   // REQUIRES: cloud_manifest_ is loaded
   // REQUIRES: cloud_manifest_ is not updated when calling this function
   IOStatus FindAllLiveFiles(const std::string& local_dbname,

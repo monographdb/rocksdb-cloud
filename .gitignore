@@ -99,3 +99,7 @@ fuzz/crash-*
 
 cmake-build-*
 third-party/folly/
+
+.clang-format
+.editorconfig
+*.vim
