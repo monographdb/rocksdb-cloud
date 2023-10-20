@@ -511,9 +511,9 @@ class CloudFileSystemOptions {
                        std::string const& object_path,
                        std::string const& region = "");
 
-  Status Configure(ConfigOptions const& config_options,
-                   std::string const& opts_str);
-  Status Serialize(ConfigOptions const& config_options,
+  Status Configure(const ConfigOptions& config_options,
+                   const std::string& opts_str);
+  Status Serialize(const ConfigOptions& config_options,
                    std::string* result) const;
 
   // Is the sst file cache configured?
@@ -604,11 +604,11 @@ class CloudFileSystem : public FileSystem {
                               std::string const& dbid) = 0;
 
   Logger* GetLogger() const { return info_log_.get(); }
-  std::shared_ptr<CloudStorageProvider> const& GetStorageProvider() const {
+  const std::shared_ptr<CloudStorageProvider>& GetStorageProvider() const {
     return cloud_fs_options.storage_provider;
   }
 
-  std::shared_ptr<CloudLogController> const& GetLogController() const {
+  const std::shared_ptr<CloudLogController>& GetLogController() const {
     return cloud_fs_options.cloud_log_controller;
   }
 
