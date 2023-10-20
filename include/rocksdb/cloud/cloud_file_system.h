@@ -337,20 +337,6 @@ class CloudFileSystemOptions {
   // Default: false
   bool resync_on_open;
 
-<<<<<<< HEAD
-=======
-  // Experimental option!
-  // This option only affects how resync_on_open works. If resync_on_open is
-  // true, and resync_manifest_on_open is true, besides fetching CLOUDMANFIEST
-  // from s3, we will fetch latest MANIFEST file as well.
-  //
-  // This is a temporary option to help quickly rollback the change if something
-  // unexpected is wrong.
-  // TODO(wei): remove this option once we are confident about the change.
-  // Default: true
-  bool resync_manifest_on_open;
-
->>>>>>> d44888ac9 (Google cloud storage support)
   // If true, we will skip the dbid verification on startup. This is currently
   // only used in tests and is not recommended setting.
   // Default: false
@@ -512,15 +498,9 @@ class CloudFileSystemOptions {
                        std::string const& object_path,
                        std::string const& region = "");
 
-<<<<<<< HEAD
   Status Configure(const ConfigOptions& config_options,
                    const std::string& opts_str);
   Status Serialize(const ConfigOptions& config_options,
-=======
-  Status Configure(ConfigOptions const& config_options,
-                   std::string const& opts_str);
-  Status Serialize(ConfigOptions const& config_options,
->>>>>>> d44888ac9 (Google cloud storage support)
                    std::string* result) const;
 
   // Is the sst file cache configured?
@@ -611,19 +591,11 @@ class CloudFileSystem : public FileSystem {
                               std::string const& dbid) = 0;
 
   Logger* GetLogger() const { return info_log_.get(); }
-<<<<<<< HEAD
   const std::shared_ptr<CloudStorageProvider>& GetStorageProvider() const {
     return cloud_fs_options.storage_provider;
   }
 
   const std::shared_ptr<CloudLogController>& GetLogController() const {
-=======
-  std::shared_ptr<CloudStorageProvider> const& GetStorageProvider() const {
-    return cloud_fs_options.storage_provider;
-  }
-
-  std::shared_ptr<CloudLogController> const& GetLogController() const {
->>>>>>> d44888ac9 (Google cloud storage support)
     return cloud_fs_options.cloud_log_controller;
   }
 
