@@ -8,13 +8,15 @@
 #else
 #include <windows.h>
 #endif
+#include <unordered_map>
+
 #include "cloud/aws/aws_file_system.h"
-#include "cloud/gcp/gcp_file_system.h"
 #include "cloud/cloud_file_system_impl.h"
 #include "cloud/cloud_log_controller_impl.h"
 #include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
+#include "cloud/gcp/gcp_file_system.h"
 #include "env/composite_env_wrapper.h"
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
@@ -27,7 +29,6 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
-#include <unordered_map>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -86,8 +87,8 @@ void CloudFileSystemOptions::Dump(Logger* log) const {
   }
 }
 
-bool CloudFileSystemOptions::GetNameFromEnvironment(char const* name,
-                                                    char const* alt,
+bool CloudFileSystemOptions::GetNameFromEnvironment(const char* name,
+                                                    const char* alt,
                                                     std::string* result) {
   char* value = getenv(name);  // See if name is set in the environment
   if (value == nullptr &&
@@ -101,9 +102,9 @@ bool CloudFileSystemOptions::GetNameFromEnvironment(char const* name,
     return false;  // No, return not found
   }
 }
-void CloudFileSystemOptions::TEST_Initialize(std::string const& bucket,
-                                             std::string const& object,
-                                             std::string const& region) {
+void CloudFileSystemOptions::TEST_Initialize(const std::string& bucket,
+                                             const std::string& object,
+                                             const std::string& region) {
   src_bucket.TEST_Initialize(bucket, object, region);
   dest_bucket = src_bucket;
 }
@@ -125,8 +126,8 @@ BucketOptions::BucketOptions() {
       "ROCKSDB_CLOUD_TEST_REGION", "ROCKSDB_CLOUD_REGION", &region_);
 }
 
-void BucketOptions::SetBucketName(std::string const& bucket,
-                                  std::string const& prefix) {
+void BucketOptions::SetBucketName(const std::string& bucket,
+                                  const std::string& prefix) {
   if (!prefix.empty()) {
     prefix_ = prefix;
   }
@@ -141,9 +142,9 @@ void BucketOptions::SetBucketName(std::string const& bucket,
 
 // Initializes the bucket properties
 
-void BucketOptions::TEST_Initialize(std::string const& bucket,
-                                    std::string const& object,
-                                    std::string const& region) {
+void BucketOptions::TEST_Initialize(const std::string& bucket,
+                                    const std::string& object,
+                                    const std::string& region) {
   std::string prefix;
   // If the bucket name is not set, then the bucket name is not set,
   // Set it to either the value of the environment variable or geteuid
@@ -179,20 +180,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"object",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kCompareNever,
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto bucket = static_cast<BucketOptions*>(addr);
             bucket->SetObjectPath(value);
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr, std::string* value) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr, std::string* value) {
             auto bucket = static_cast<const BucketOptions*>(addr);
             *value = bucket->GetObjectPath();
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr1, void const* addr2, std::string* /*mismatch*/) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr1, const void* addr2, std::string* /*mismatch*/) {
             auto bucket1 = static_cast<const BucketOptions*>(addr1);
             auto bucket2 = static_cast<const BucketOptions*>(addr2);
             return bucket1->GetObjectPath() == bucket2->GetObjectPath();
@@ -200,20 +201,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"region",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kCompareNever,
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto bucket = static_cast<BucketOptions*>(addr);
             bucket->SetRegion(value);
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr, std::string* value) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr, std::string* value) {
             auto bucket = static_cast<const BucketOptions*>(addr);
             *value = bucket->GetRegion();
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr1, void const* addr2, std::string* /*mismatch*/) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr1, const void* addr2, std::string* /*mismatch*/) {
             auto bucket1 = static_cast<const BucketOptions*>(addr1);
             auto bucket2 = static_cast<const BucketOptions*>(addr2);
             return bucket1->GetRegion() == bucket2->GetRegion();
@@ -221,20 +222,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"prefix",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone,
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto bucket = static_cast<BucketOptions*>(addr);
             bucket->SetBucketName(bucket->GetBucketName(false), value);
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr, std::string* value) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr, std::string* value) {
             auto bucket = static_cast<const BucketOptions*>(addr);
             *value = bucket->GetBucketPrefix();
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr1, void const* addr2, std::string* /*mismatch*/) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr1, const void* addr2, std::string* /*mismatch*/) {
             auto bucket1 = static_cast<const BucketOptions*>(addr1);
             auto bucket2 = static_cast<const BucketOptions*>(addr2);
             return bucket1->GetBucketPrefix() == bucket2->GetBucketPrefix();
@@ -242,20 +243,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"bucket",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone,
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto bucket = static_cast<BucketOptions*>(addr);
             bucket->SetBucketName(value);
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr, std::string* value) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr, std::string* value) {
             auto bucket = static_cast<const BucketOptions*>(addr);
             *value = bucket->GetBucketName(false);
             return Status::OK();
           },
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             void const* addr1, void const* addr2, std::string* /*mismatch*/) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr1, const void* addr2, std::string* /*mismatch*/) {
             auto bucket1 = static_cast<const BucketOptions*>(addr1);
             auto bucket2 = static_cast<const BucketOptions*>(addr2);
             return bucket1->GetBucketName(false) ==
@@ -264,8 +265,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"TEST",
          {0, OptionType::kUnknown, OptionVerificationType::kAlias,
           OptionTypeFlags::kNone,
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto bucket = static_cast<BucketOptions*>(addr);
             std::string name = value;
             std::string path;
@@ -330,8 +331,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kConfigurable, OptionVerificationType::kByNameAllowNull,
           (OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
            OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull),
-          [](ConfigOptions const& opts, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto provider =
                 static_cast<std::shared_ptr<CloudStorageProvider>*>(addr);
             return CloudStorageProvider::CreateFromString(opts, value,
@@ -343,8 +344,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           (OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
            OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull),
           // Creates a new TableFactory based on value
-          [](ConfigOptions const& opts, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto controller =
                 static_cast<std::shared_ptr<CloudLogController>*>(addr);
             Status s =
@@ -362,8 +363,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"TEST",
          {0, OptionType::kUnknown, OptionVerificationType::kAlias,
           OptionTypeFlags::kNone,
-          [](ConfigOptions const& /*opts*/, std::string const& /*name*/,
-             std::string const& value, void* addr) {
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
             auto copts = static_cast<CloudFileSystemOptions*>(addr);
             std::string name;
             std::string path;
@@ -384,8 +385,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           }}},
 };
 
-Status CloudFileSystemOptions::Configure(ConfigOptions const& config_options,
-                                         std::string const& opts_str) {
+Status CloudFileSystemOptions::Configure(const ConfigOptions& config_options,
+                                         const std::string& opts_str) {
   std::string current;
   Status s;
   if (!config_options.ignore_unknown_options) {
@@ -409,17 +410,17 @@ Status CloudFileSystemOptions::Configure(ConfigOptions const& config_options,
   return s;
 }
 
-Status CloudFileSystemOptions::Serialize(ConfigOptions const& config_options,
+Status CloudFileSystemOptions::Serialize(const ConfigOptions& config_options,
                                          std::string* value) const {
   return OptionTypeInfo::SerializeStruct(
       config_options, CloudFileSystemOptions::kName(),
       &cloud_fs_option_type_info, CloudFileSystemOptions::kName(),
-      reinterpret_cast<char const*>(this), value);
+      reinterpret_cast<const char*>(this), value);
 }
 
-CloudFileSystem::CloudFileSystem(CloudFileSystemOptions const& options,
-                                 std::shared_ptr<FileSystem> const& base,
-                                 std::shared_ptr<Logger> const& logger)
+CloudFileSystem::CloudFileSystem(const CloudFileSystemOptions& options,
+                                 const std::shared_ptr<FileSystem>& base,
+                                 const std::shared_ptr<Logger>& logger)
     : cloud_fs_options(options), base_fs_(base), info_log_(logger) {
   RegisterOptions(&cloud_fs_options, &cloud_fs_option_type_info);
 }
@@ -430,12 +431,12 @@ CloudFileSystem::~CloudFileSystem() {
 }
 
 Status CloudFileSystem::NewAwsFileSystem(
-    std::shared_ptr<FileSystem> const& base_fs,
-    std::string const& src_cloud_bucket, std::string const& src_cloud_object,
-    std::string const& src_cloud_region, std::string const& dest_cloud_bucket,
-    std::string const& dest_cloud_object, std::string const& dest_cloud_region,
-    CloudFileSystemOptions const& cloud_options,
-    std::shared_ptr<Logger> const& logger, CloudFileSystem** cfs) {
+    const std::shared_ptr<FileSystem>& base_fs,
+    const std::string& src_cloud_bucket, const std::string& src_cloud_object,
+    const std::string& src_cloud_region, const std::string& dest_cloud_bucket,
+    const std::string& dest_cloud_object, const std::string& dest_cloud_region,
+    const CloudFileSystemOptions& cloud_options,
+    const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs) {
   CloudFileSystemOptions options = cloud_options;
   if (!src_cloud_bucket.empty())
     options.src_bucket.SetBucketName(src_cloud_bucket);
@@ -452,12 +453,12 @@ Status CloudFileSystem::NewAwsFileSystem(
 }
 
 Status CloudFileSystem::NewGcpFileSystem(
-    std::shared_ptr<FileSystem> const& base_fs,
-    std::string const& src_cloud_bucket, std::string const& src_cloud_object,
-    std::string const& src_cloud_region, std::string const& dest_cloud_bucket,
-    std::string const& dest_cloud_object, std::string const& dest_cloud_region,
-    CloudFileSystemOptions const& cloud_options,
-    std::shared_ptr<Logger> const& logger, CloudFileSystem** cfs) {
+    const std::shared_ptr<FileSystem>& base_fs,
+    const std::string& src_cloud_bucket, const std::string& src_cloud_object,
+    const std::string& src_cloud_region, const std::string& dest_cloud_bucket,
+    const std::string& dest_cloud_object, const std::string& dest_cloud_region,
+    const CloudFileSystemOptions& cloud_options,
+    const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs) {
   CloudFileSystemOptions options = cloud_options;
   if (!src_cloud_bucket.empty())
     options.src_bucket.SetBucketName(src_cloud_bucket);
@@ -473,12 +474,12 @@ Status CloudFileSystem::NewGcpFileSystem(
   return NewGcpFileSystem(base_fs, options, logger, cfs);
 }
 
-int DoRegisterCloudObjects(ObjectLibrary& library, std::string const& arg) {
+int DoRegisterCloudObjects(ObjectLibrary& library, const std::string& arg) {
   int count = 0;
   // Register the FileSystem types
   library.AddFactory<FileSystem>(
       CloudFileSystemImpl::kClassName(),
-      [](std::string const& /*uri*/, std::unique_ptr<FileSystem>* guard,
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new CloudFileSystemImpl(CloudFileSystemOptions(),
                                              FileSystem::Default(),
@@ -498,7 +499,7 @@ int DoRegisterCloudObjects(ObjectLibrary& library, std::string const& arg) {
 
   library.AddFactory<CloudLogController>(
       CloudLogControllerImpl::kKafka(),
-      [](std::string const& /*uri*/, std::unique_ptr<CloudLogController>* guard,
+      [](const std::string& /*uri*/, std::unique_ptr<CloudLogController>* guard,
          std::string* errmsg) {
         Status s = CloudLogControllerImpl::CreateKafkaController(guard);
         if (!s.ok()) {
@@ -512,7 +513,7 @@ int DoRegisterCloudObjects(ObjectLibrary& library, std::string const& arg) {
   return count;
 }
 
-void CloudFileSystem::RegisterCloudObjects(std::string const& arg) {
+void CloudFileSystem::RegisterCloudObjects(const std::string& arg) {
   static std::once_flag do_once;
   std::call_once(do_once, [&]() {
     auto library = ObjectLibrary::Default();
@@ -529,7 +530,7 @@ std::unique_ptr<Env> CloudFileSystem::NewCompositeEnvFromThis(Env* env) {
 }
 
 Status CloudFileSystem::CreateFromString(
-    ConfigOptions const& config_options, std::string const& value,
+    const ConfigOptions& config_options, const std::string& value,
     std::unique_ptr<CloudFileSystem>* result) {
   RegisterCloudObjects();
   std::string id;
@@ -582,8 +583,8 @@ Status CloudFileSystem::CreateFromString(
 }
 
 Status CloudFileSystem::CreateFromString(
-    ConfigOptions const& config_options, std::string const& value,
-    CloudFileSystemOptions const& cloud_options,
+    const ConfigOptions& config_options, const std::string& value,
+    const CloudFileSystemOptions& cloud_options,
     std::unique_ptr<CloudFileSystem>* result) {
   RegisterCloudObjects();
   std::string id;
@@ -639,16 +640,16 @@ Status CloudFileSystem::CreateFromString(
 
 #ifndef USE_AWS
 Status CloudFileSystem::NewAwsFileSystem(
-    std::shared_ptr<FileSystem> const& /*base_fs*/,
-    CloudFileSystemOptions const& /*options*/,
-    std::shared_ptr<Logger> const& /*logger*/, CloudFileSystem** /*cfs*/) {
+    const std::shared_ptr<FileSystem>& /*base_fs*/,
+    const CloudFileSystemOptions& /*options*/,
+    const std::shared_ptr<Logger>& /*logger*/, CloudFileSystem** /*cfs*/) {
   return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
 }
 #else
 Status CloudFileSystem::NewAwsFileSystem(
-    std::shared_ptr<FileSystem> const& base_fs,
-    CloudFileSystemOptions const& options,
-    std::shared_ptr<Logger> const& logger, CloudFileSystem** cfs) {
+    const std::shared_ptr<FileSystem>& base_fs,
+    const CloudFileSystemOptions& options,
+    const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs) {
   CloudFileSystem::RegisterCloudObjects();
   // Dump out cloud fs options
   options.Dump(logger.get());
@@ -670,28 +671,28 @@ Status CloudFileSystem::NewAwsFileSystem(
 
 #ifndef USE_GCP
 Status CloudFileSystem::NewGcpFileSystem(
-    std::shared_ptr<FileSystem> const& /*base_fs*/,
-    CloudFileSystemOptions const& /*options*/,
-    std::shared_ptr<Logger> const& /*logger*/, CloudFileSystem** /*cfs*/) {
+    const std::shared_ptr<FileSystem>& /*base_fs*/,
+    const CloudFileSystemOptions& /*options*/,
+    const std::shared_ptr<Logger>& /*logger*/, CloudFileSystem** /*cfs*/) {
   return Status::NotSupported("RocksDB Cloud not compiled with GCP support");
 }
 #else
 Status CloudFileSystem::NewGcpFileSystem(
-    std::shared_ptr<FileSystem> const& base_fs,
-    CloudFileSystemOptions const& options,
-    std::shared_ptr<Logger> const& logger, CloudFileSystem** cfs) {
+    const std::shared_ptr<FileSystem>& base_fs,
+    const CloudFileSystemOptions& options,
+    const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs) {
   CloudFileSystem::RegisterCloudObjects();
-  //Dump out cloud fs options
+  // Dump out cloud fs options
   options.Dump(logger.get());
 
   Status st = GcpFileSystem::NewGcpFileSystem(base_fs, options, logger, cfs);
-  if(st.ok()) {
-    //store a copy to the logger
+  if (st.ok()) {
+    // store a copy to the logger
     auto* cloud = static_cast<CloudFileSystemImpl*>(*cfs);
     cloud->info_log_ = logger;
 
-    //start the purge thread only if there is a destination bucket
-    if(options.dest_bucket.IsValid() && options.run_purger) {
+    // start the purge thread only if there is a destination bucket
+    if (options.dest_bucket.IsValid() && options.run_purger) {
       cloud->purge_thread_ = std::thread([cloud] { cloud->Purger(); });
     }
   }
@@ -701,7 +702,7 @@ Status CloudFileSystem::NewGcpFileSystem(
 #endif
 
 std::unique_ptr<Env> CloudFileSystem::NewCompositeEnv(
-    Env* env, std::shared_ptr<FileSystem> const& fs) {
+    Env* env, const std::shared_ptr<FileSystem>& fs) {
   return std::make_unique<CompositeEnvWrapper>(env, fs);
 }
 
