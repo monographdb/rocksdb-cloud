@@ -4250,6 +4250,35 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   }
 }
 
+void VersionStorageInfo::GetInputsWithinIntervalInLevel0(
+    const InternalKey* begin,  // nullptr means before all keys
+    const InternalKey* end,               // nullptr means after all keys
+    std::vector<FileMetaData*>* inputs) const {
+  assert(inputs != nullptr);
+  inputs->clear();
+  if (level_files_brief_[0].num_files == 0) {
+    return;
+  }
+  Slice user_begin, user_end;
+  if (begin != nullptr) {
+    user_begin = begin->user_key();
+  }
+  if (end != nullptr) {
+    user_end = end->user_key();
+  }
+
+  for (size_t i =0 ; i < level_files_brief_[0].num_files; i++) {
+    FdWithKeyRange* f = &(level_files_brief_[0].files[i]);
+    const Slice file_start = ExtractUserKey(f->smallest_key);
+    const Slice file_limit = ExtractUserKey(f->largest_key);
+    if (begin != nullptr && end != nullptr &&
+        user_comparator_->CompareWithoutTimestamp(user_begin, file_start) < 0 &&
+        user_comparator_->CompareWithoutTimestamp(user_end, file_limit) > 0) {
+      inputs->emplace_back(files_[0][i]);
+    }
+  }
+}
+
 uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
   assert(level >= 0);
   assert(level < num_levels());

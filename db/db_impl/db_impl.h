@@ -515,6 +515,9 @@ class DBImpl : public DB {
                              const RangePtr* ranges, size_t n,
                              bool include_end = true);
 
+  Status DeleteSstFilesInRangesForLevel0(ColumnFamilyHandle* column_family,
+                                         const RangePtr* ranges, size_t n);
+
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* metadata) override;
 

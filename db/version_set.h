@@ -282,6 +282,11 @@ class VersionStorageInfo {
       InternalKey** next_smallest = nullptr)  // if non-null, returns the
       const;  // smallest key of next file not included
 
+  void GetInputsWithinIntervalInLevel0(
+    const InternalKey* begin,  // not nullptr
+    const InternalKey* end,    // not nullptr
+    std::vector<FileMetaData*>* inputs) const;
+
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
   // smallest_user_key==NULL represents a key smaller than all keys in the DB.
