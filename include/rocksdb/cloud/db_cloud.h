@@ -55,6 +55,8 @@ class DBCloud : public StackableDB {
   virtual Status CheckpointToCloud(const BucketOptions& destination,
                                    const CheckpointToCloudOptions& options) = 0;
 
+  virtual Status WarmUp(size_t max_warmup_threads) = 0;
+
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB
   // through column_families argument. The ordering of

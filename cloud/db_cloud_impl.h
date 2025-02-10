@@ -10,6 +10,7 @@
 
 #include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/db.h"
+#include "port/port_posix.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -29,6 +30,8 @@ class DBCloudImpl : public DBCloud {
   Status CheckpointToCloud(const BucketOptions& destination,
                            const CheckpointToCloudOptions& options) override;
 
+  Status WarmUp(size_t max_warmup_threads) override;
+
  protected:
   // The CloudFileSystem used by this open instance.
   CloudFileSystem* cfs_;
@@ -43,6 +46,9 @@ class DBCloudImpl : public DBCloud {
   DBCloudImpl(DB* db, std::unique_ptr<Env> local_env);
 
   std::unique_ptr<Env> local_env_;
+
+  std::atomic<bool> stop_warm_up_{false};
+  std::vector<port::Thread> warm_up_threads_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
