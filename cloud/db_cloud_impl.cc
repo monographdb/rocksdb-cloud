@@ -251,9 +251,12 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
   Status st = GetDbIdentity(dbid);
   if (!st.ok()) {
     Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-        "Warmup could not get dbid %s", st.ToString().c_str());
+        "WarmUp could not get dbid %s", st.ToString().c_str());
     return st;
   }
+
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Join Thread Start");
 
   stop_warm_up_.store(true, std::memory_order_relaxed);
   for (auto &thd : warm_up_threads_) {
@@ -265,11 +268,16 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
   warm_up_threads_.clear();
   stop_warm_up_.store(false, std::memory_order_relaxed);
 
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Join Thread End");
+
 
   if (max_warm_up_threads <= 0) {
     max_warm_up_threads = 1;
   }
 
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Check Bucket Start");
 
   CloudFileSystemImpl *cfs = dynamic_cast<CloudFileSystemImpl *>(GetEnv()->GetFileSystem().get());
   assert(cfs);
@@ -280,15 +288,29 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     return st;
   }
 
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Check Bucket Stop");
+
+
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Get Live Files Start");
+
   // find all sst files in the db
   std::vector<LiveFileMetaData> live_files;
   GetLiveFilesMetaData(&live_files);
+
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Get Live Files Stop");
 
   // If an sst file does not exist in the destination path, then remember it
   std::vector<std::string> to_fetch;
   for (auto file_meta_data : live_files) {
     // file_meta_data.level;
-    auto remapped_fname = cfs->RemapFilename(file_meta_data.name);
+    std::string name = file_meta_data.directory + file_meta_data.relative_filename;
+    Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp name = %s", name.c_str());
+
+    auto remapped_fname = cfs->RemapFilename(name);
     to_fetch.push_back(remapped_fname);
   }
 
@@ -320,6 +342,9 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
       std::atomic<size_t> &next_file_meta_idx = fetch_file_data->next_file_meta_idx_;
       const std::vector<std::string> &to_fetch_file_name = fetch_file_data->to_fetch_;
 
+      Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "Start WarmUp");
+
       while (!stop_warm_up_.load(std::memory_order_relaxed)) {
         // fetch next file name
         size_t idx = next_file_meta_idx.fetch_add(1);
@@ -328,7 +353,15 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
         }
 
         const auto& fname = to_fetch_file_name[idx];
+
+        Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "Fetch file from cloud storage, file: %s, idx: %d, total: %d",fname.c_str(), (int)idx, (int)to_fetch_file_name.size());
+
+
         if (base_fs->FileExists(fname, io_options, nullptr).ok()) {
+          // TODO: remove this line
+          Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp file %s exists", fname.c_str());
           continue;
         }
 
@@ -341,14 +374,23 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
             auto statx = base_fs->GetFileSize(fname, io_options, &local_size, nullptr);
             if (statx.ok()) {
               if (cfs_options.sst_file_cache->GetUsage() + local_size >= cache_capacity) {
+                Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp exceed file cache limit, stop warm up");
+                
                 base_fs->DeleteFile(fname, io_options, nullptr);
                 break;
               }
+
+              Log(InfoLogLevel::INFO_LEVEL, default_options.info_log, "WarmUp insert into file cache, file: %s", fname.c_str());
               // insert into file cache
               cfs->FileCacheInsert(fname, local_size);
             }
             else {
-                base_fs->DeleteFile(fname, io_options, nullptr);
+               // TODO: remove this line
+               Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp get file size fail on %s", fname.c_str());
+
+              base_fs->DeleteFile(fname, io_options, nullptr);
             }
           }
         }
@@ -359,14 +401,23 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
           // ignore error
         }
       }
+
+      Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "Stop WarmUp");
     };
 
   assert(warm_up_threads_.empty());
   assert(stop_warm_up_.load(std::memory_order_relaxed) == false);
 
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Create Thread Start");
+
   for (size_t idx = 0; idx < max_warm_up_threads; idx++) {
     warm_up_threads_.emplace_back(load_handlers_func);
   }
+
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp Create Thread Stop");
   
   return Status::OK();
 }
