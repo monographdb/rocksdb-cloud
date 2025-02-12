@@ -1,5 +1,6 @@
 // Copyright (c) 2017 Rockset.
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
@@ -26,6 +27,7 @@
 #include "rocksdb/table.h"
 #include "util/xxhash.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
+#include "cache/lru_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -62,7 +64,7 @@ DBCloudImpl::DBCloudImpl(DB* db, std::unique_ptr<Env> local_env)
     : DBCloud(db), cfs_(nullptr), local_env_(std::move(local_env)) {}
 
 DBCloudImpl::~DBCloudImpl() {
-  stop_warm_up_.store(true, std::memory_order_relaxed);
+  stop_warm_up_.store(true, std::memory_order_release);
   for (auto &thd : warm_up_threads_) {
     if (thd.joinable())
     {
@@ -255,29 +257,22 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     return st;
   }
 
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Join Thread Start");
-
-  stop_warm_up_.store(true, std::memory_order_relaxed);
-  for (auto &thd : warm_up_threads_) {
-    if (thd.joinable()) {
-      thd.join();
+  if (!warm_up_threads_.empty())
+  {
+    stop_warm_up_.store(true, std::memory_order_release);
+    for (auto &thd : warm_up_threads_) {
+      if (thd.joinable()) {
+        thd.join();
+      }
     }
   }
 
   warm_up_threads_.clear();
-  stop_warm_up_.store(false, std::memory_order_relaxed);
-
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Join Thread End");
-
+  stop_warm_up_.store(false, std::memory_order_release);
 
   if (max_warm_up_threads <= 0) {
     max_warm_up_threads = 1;
   }
-
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Check Bucket Start");
 
   CloudFileSystemImpl *cfs = dynamic_cast<CloudFileSystemImpl *>(GetEnv()->GetFileSystem().get());
   assert(cfs);
@@ -288,28 +283,15 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     return st;
   }
 
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Check Bucket Stop");
-
-
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Get Live Files Start");
-
   // find all sst files in the db
   std::vector<LiveFileMetaData> live_files;
   GetLiveFilesMetaData(&live_files);
-
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Get Live Files Stop");
 
   // If an sst file does not exist in the destination path, then remember it
   std::vector<std::string> to_fetch;
   for (auto file_meta_data : live_files) {
     // file_meta_data.level;
     std::string name = file_meta_data.directory + file_meta_data.relative_filename;
-    Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp name = %s", name.c_str());
-
     auto remapped_fname = cfs->RemapFilename(name);
     to_fetch.push_back(remapped_fname);
   }
@@ -334,9 +316,18 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
       const auto &base_fs = cfs->GetBaseFileSystem();
       const auto &cfs_options = cfs->GetCloudFileSystemOptions();
 
+      LRUCache *lru_cache = nullptr;
       if (cfs_options.hasSstFileCache()) {
         assert(cfs_options.sst_file_cache != nullptr);
         cache_capacity = cfs_options.sst_file_cache->GetCapacity();
+        if (std::strcmp(cfs_options.sst_file_cache->Name(), "LRUCache") == 0) {
+          lru_cache = static_cast<LRUCache *>(cfs_options.sst_file_cache.get());
+          cache_capacity = cache_capacity / lru_cache->GetNumShards();
+          assert(cache_capacity > 0);
+        }
+        else {
+          assert(false && "Unimplemented");
+        }
       }
 
       std::atomic<size_t> &next_file_meta_idx = fetch_file_data->next_file_meta_idx_;
@@ -345,7 +336,7 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
       Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
                   "Start WarmUp");
 
-      while (!stop_warm_up_.load(std::memory_order_relaxed)) {
+      while (!stop_warm_up_.load(std::memory_order_acquire)) {
         // fetch next file name
         size_t idx = next_file_meta_idx.fetch_add(1);
         if (idx >= to_fetch_file_name.size()) {
@@ -361,37 +352,41 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
         if (base_fs->FileExists(fname, io_options, nullptr).ok()) {
           // TODO: remove this line
           Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp file %s exists", fname.c_str());
+                  "WarmUp: file %s exists", fname.c_str());
           continue;
         }
 
+        size_t remote_size = 0;
+        IOStatus io_status = cfs->GetCloudObjectSize(fname, &remote_size);
+        if (!io_status.ok()) {
+          Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+              "WarmUp: failed to fetch object size, file name: %s, err: %s", fname.c_str(), io_status.ToString().c_str());
+          // ignore error
+          continue;
+        }
+
+        assert(io_status.ok());
+        // fast path to check shard cache limit
+        if (lru_cache != nullptr) {
+          Slice key(fname);
+          size_t total_charge  = lru_cache->GetShardUsage(key) + remote_size;
+          if (total_charge >= cache_capacity)
+          {
+            Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+            "WarmUp: total charge %" PRIu64 " exceed per shard cache limit %" PRIu64, total_charge, cache_capacity);
+            // This shard cache is full, we skip this shard cache
+            continue;
+          }
+        }
+
         // fetch sst from cloud storage
-        IOStatus io_status = cfs->GetCloudObject(fname);
+        io_status = cfs->GetCloudObject(fname);
 
         if (io_status.ok()) {
           if (cfs_options.hasSstFileCache()) {
-            uint64_t local_size;
-            auto statx = base_fs->GetFileSize(fname, io_options, &local_size, nullptr);
-            if (statx.ok()) {
-              if (cfs_options.sst_file_cache->GetUsage() + local_size >= cache_capacity) {
-                Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp exceed file cache limit, stop warm up");
-                
-                base_fs->DeleteFile(fname, io_options, nullptr);
-                break;
-              }
-
-              Log(InfoLogLevel::INFO_LEVEL, default_options.info_log, "WarmUp insert into file cache, file: %s", fname.c_str());
-              // insert into file cache
-              cfs->FileCacheInsert(fname, local_size);
-            }
-            else {
-               // TODO: remove this line
-               Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp get file size fail on %s", fname.c_str());
-
-              base_fs->DeleteFile(fname, io_options, nullptr);
-            }
+            Log(InfoLogLevel::INFO_LEVEL, default_options.info_log, "WarmUp: insert into file cache, file: %s", fname.c_str());
+            // insert into file cache
+            cfs->FileCacheInsert(fname, remote_size);
           }
         }
         else {
@@ -409,15 +404,9 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
   assert(warm_up_threads_.empty());
   assert(stop_warm_up_.load(std::memory_order_relaxed) == false);
 
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Create Thread Start");
-
   for (size_t idx = 0; idx < max_warm_up_threads; idx++) {
     warm_up_threads_.emplace_back(load_handlers_func);
   }
-
-  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-                  "WarmUp Create Thread Stop");
   
   return Status::OK();
 }
