@@ -283,6 +283,9 @@ class CloudFileSystemImpl : public CloudFileSystem {
   // Gets the cloud object fname from the dest or src bucket
   IOStatus GetCloudObject(const std::string& fname);
 
+  // Gets the size of the named cloud object from the dest or src bucket
+  IOStatus GetCloudObjectSize(const std::string& fname, uint64_t* remote_size);
+
   // Delete invisible files in cloud.
   //
   // REQUIRES: Dest bucket set
@@ -314,9 +317,6 @@ class CloudFileSystemImpl : public CloudFileSystem {
 
   // Checks to see if the input fname exists in the dest or src bucket
   IOStatus ExistsCloudObject(const std::string& fname);
-
-  // Gets the size of the named cloud object from the dest or src bucket
-  IOStatus GetCloudObjectSize(const std::string& fname, uint64_t* remote_size);
 
   // Gets the modification time of the named cloud object from the dest or src
   // bucket
