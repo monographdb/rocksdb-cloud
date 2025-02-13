@@ -249,10 +249,11 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
 Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
 {
   std::string dbid;
+  Options default_options = GetOptions();
   Status st = GetDbIdentity(dbid);
   if (!st.ok()) {
-    Log(InfoLogLevel::INFO_LEVEL, nullptr,
-        "WarmUp could not get dbid %s", st.ToString().c_str());
+    Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+        "WarmUp: could not get dbid %s", st.ToString().c_str());
     return st;
   }
 
@@ -276,21 +277,15 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
   CloudFileSystemImpl *cfs = dynamic_cast<CloudFileSystemImpl *>(GetEnv()->GetFileSystem().get());
   assert(cfs);
   if (!cfs->HasDestBucket() && !cfs->HasSrcBucket()) {
-    Log(InfoLogLevel::INFO_LEVEL, nullptr,
-        "WarmUp on cloud dbid %s has no source/dest bucket, nothing to do.",
+    Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+        "WarmUp: cloud dbid %s has no source/dest bucket, nothing to do.",
         dbid.c_str());
     return st;
   }
 
-  Log(InfoLogLevel::INFO_LEVEL, nullptr,
-        "WarmUp: start fetch live files");
-
   // find all sst files in the db
   std::vector<LiveFileMetaData> live_files;
   GetLiveFilesMetaData(&live_files);
-
-  Log(InfoLogLevel::INFO_LEVEL, nullptr,
-        "WarmUp: stop fetch live files");
 
   // If an sst file does not exist in the destination path, then remember it
   std::vector<std::string> to_fetch;
@@ -304,18 +299,18 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
   // keep local sst files
 
 
-  struct FetchFileData {
+  struct FetchFileInfo {
     std::atomic<size_t> next_file_meta_idx_{0};
     std::vector<std::string> to_fetch_;
   };
 
   // copy all files in parallel
-  std::shared_ptr<FetchFileData> fetch_file_data = std::make_shared<FetchFileData>();
+  std::shared_ptr<FetchFileInfo> fetch_file_data = std::make_shared<FetchFileInfo>();
   fetch_file_data->next_file_meta_idx_ = 0;
   fetch_file_data->to_fetch_ = std::move(to_fetch);
 
 
-  std::function<void()> load_handlers_func = [this, fetch_file_data, dbid, cfs]() {
+  std::function<void()> load_handlers_func = [this, fetch_file_data, default_options, dbid, cfs]() {
       size_t cache_capacity = 0;
       IOOptions io_options;
       const auto &base_fs = cfs->GetBaseFileSystem();
@@ -338,8 +333,8 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
       std::atomic<size_t> &next_file_meta_idx = fetch_file_data->next_file_meta_idx_;
       const std::vector<std::string> &to_fetch_file_name = fetch_file_data->to_fetch_;
 
-      Log(InfoLogLevel::INFO_LEVEL, nullptr,
-                  "Start WarmUp");
+      Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp: start to fetch file from cloud storage");
 
       while (!stop_warm_up_.load(std::memory_order_acquire)) {
         // fetch next file name
@@ -350,21 +345,15 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
 
         const auto& fname = to_fetch_file_name[idx];
 
-        Log(InfoLogLevel::INFO_LEVEL, nullptr,
-                  "Fetch file from cloud storage, file: %s, idx: %d, total: %d",fname.c_str(), (int)idx, (int)to_fetch_file_name.size());
-
-
         if (base_fs->FileExists(fname, io_options, nullptr).ok()) {
-          // TODO: remove this line
-          Log(InfoLogLevel::INFO_LEVEL, nullptr,
-                  "WarmUp: file %s exists", fname.c_str());
+          // skip
           continue;
         }
 
         size_t remote_size = 0;
         IOStatus io_status = cfs->GetCloudObjectSize(fname, &remote_size);
         if (!io_status.ok()) {
-          Log(InfoLogLevel::INFO_LEVEL, nullptr,
+          Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
               "WarmUp: failed to fetch object size, file name: %s, err: %s", fname.c_str(), io_status.ToString().c_str());
           // ignore error
           continue;
@@ -377,8 +366,9 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
           size_t total_charge  = lru_cache->GetShardUsage(key) + remote_size;
           if (total_charge >= cache_capacity)
           {
-            Log(InfoLogLevel::INFO_LEVEL, nullptr,
-            "WarmUp: total charge %" PRIu64 " exceed per shard cache limit %" PRIu64, total_charge, cache_capacity);
+            // Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+            //  "WarmUp: total charge %" PRIu64 " exceeds per shard cache limit %" PRIu64, total_charge, cache_capacity);
+
             // This shard cache is full, we skip this shard cache
             continue;
           }
@@ -389,21 +379,19 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
 
         if (io_status.ok()) {
           if (cfs_options.hasSstFileCache()) {
-            Log(InfoLogLevel::INFO_LEVEL, nullptr, "WarmUp: insert into file cache, file: %s", fname.c_str());
             // insert into file cache
             cfs->FileCacheInsert(fname, remote_size);
           }
         }
         else {
-          Log(InfoLogLevel::INFO_LEVEL, nullptr,
-              "Warmup on cloud dbid %s error in fetch file %s. %s",
-              dbid.c_str(), fname.c_str(), io_status.ToString().c_str());
+          Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+              "WarmUp: failed to fetch file %s. err: %s", fname.c_str(), io_status.ToString().c_str());
           // ignore error
         }
       }
 
-      Log(InfoLogLevel::INFO_LEVEL, nullptr,
-                  "Stop WarmUp");
+      Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+                  "WarmUp: stop to fetch file from cloud storage");
     };
 
   assert(warm_up_threads_.empty());
