@@ -257,23 +257,6 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     return st;
   }
 
-  if (!warm_up_threads_.empty())
-  {
-    stop_warm_up_.store(true, std::memory_order_release);
-    for (auto &thd : warm_up_threads_) {
-      if (thd.joinable()) {
-        thd.join();
-      }
-    }
-  }
-
-  warm_up_threads_.clear();
-  stop_warm_up_.store(false, std::memory_order_release);
-
-  if (max_warm_up_threads <= 0) {
-    max_warm_up_threads = 1;
-  }
-
   CloudFileSystemImpl *cfs = dynamic_cast<CloudFileSystemImpl *>(GetEnv()->GetFileSystem().get());
   assert(cfs);
   if (!cfs->HasDestBucket() && !cfs->HasSrcBucket()) {
@@ -283,11 +266,29 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     return st;
   }
 
+  bool expected = true;
+  if (!stop_warm_up_.compare_exchange_strong(expected, false))
+  {
+    return st;
+  }
+
+  for (auto &thd : warm_up_threads_) {
+    if (thd.joinable()) {
+      thd.join();
+    }
+  }
+  
+  warm_up_threads_.clear();
+  
+  if (max_warm_up_threads <= 0) {
+    max_warm_up_threads = 1;
+  }
+
+
   // find all sst files in the db
   std::vector<LiveFileMetaData> live_files;
   GetLiveFilesMetaData(&live_files);
 
-  // If an sst file does not exist in the destination path, then remember it
   std::vector<std::string> to_fetch;
   for (auto file_meta_data : live_files) {
     // file_meta_data.level;
@@ -302,12 +303,13 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
   struct FetchFileInfo {
     std::atomic<size_t> next_file_meta_idx_{0};
     std::vector<std::string> to_fetch_;
+    std::atomic<size_t> unfinished_thread_cnt_{0};
   };
 
-  // copy all files in parallel
   std::shared_ptr<FetchFileInfo> fetch_file_data = std::make_shared<FetchFileInfo>();
   fetch_file_data->next_file_meta_idx_ = 0;
   fetch_file_data->to_fetch_ = std::move(to_fetch);
+  fetch_file_data->unfinished_thread_cnt_ = max_warm_up_threads;
 
 
   std::function<void()> load_handlers_func = [this, fetch_file_data, default_options, dbid, cfs]() {
@@ -388,6 +390,11 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
               "WarmUp: failed to fetch file %s. err: %s", fname.c_str(), io_status.ToString().c_str());
           // ignore error
         }
+      }
+
+      // last thread
+      if(fetch_file_data->unfinished_thread_cnt_.fetch_sub(1) == 1) {
+        stop_warm_up_.store(true, std::memory_order_release);
       }
 
       Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,

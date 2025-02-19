@@ -11,6 +11,7 @@
 #include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/db.h"
 #include "port/port_posix.h"
+#include "monitoring/instrumented_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -47,7 +48,7 @@ class DBCloudImpl : public DBCloud {
 
   std::unique_ptr<Env> local_env_;
 
-  std::atomic<bool> stop_warm_up_{false};
+  std::atomic<bool> stop_warm_up_{true};
   std::vector<port::Thread> warm_up_threads_;
 };
 }  // namespace ROCKSDB_NAMESPACE
