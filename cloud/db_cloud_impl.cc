@@ -257,19 +257,22 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     return st;
   }
 
+  assert(st.ok());
+
   CloudFileSystemImpl *cfs = dynamic_cast<CloudFileSystemImpl *>(GetEnv()->GetFileSystem().get());
   assert(cfs);
   if (!cfs->HasDestBucket() && !cfs->HasSrcBucket()) {
     Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
         "WarmUp: cloud dbid %s has no source/dest bucket, nothing to do.",
         dbid.c_str());
-    return st;
+    return Status::OK();
   }
 
   bool expected = true;
   if (!stop_warm_up_.compare_exchange_strong(expected, false))
   {
-    return st;
+    // WarmUp has been started. Just return
+    return Status::OK();
   }
 
   for (auto &thd : warm_up_threads_) {
