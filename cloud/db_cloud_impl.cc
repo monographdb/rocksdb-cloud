@@ -64,7 +64,7 @@ DBCloudImpl::DBCloudImpl(DB* db, std::unique_ptr<Env> local_env)
     : DBCloud(db), cfs_(nullptr), local_env_(std::move(local_env)) {}
 
 DBCloudImpl::~DBCloudImpl() {
-  stop_warm_up_.store(true, std::memory_order_release);
+  warm_up_is_running_.store(false, std::memory_order_release);
   for (auto &thd : warm_up_threads_) {
     if (thd.joinable())
     {
@@ -268,8 +268,8 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     return Status::OK();
   }
 
-  bool expected = true;
-  if (!stop_warm_up_.compare_exchange_strong(expected, false))
+  bool expected = false;
+  if (!warm_up_is_running_.compare_exchange_strong(expected, true))
   {
     // WarmUp has been started. Just return
     return Status::OK();
@@ -341,7 +341,7 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
       Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
                   "WarmUp: start to fetch file from cloud storage");
 
-      while (!stop_warm_up_.load(std::memory_order_acquire)) {
+      while (warm_up_is_running_.load(std::memory_order_acquire)) {
         // fetch next file name
         size_t idx = next_file_meta_idx.fetch_add(1);
         if (idx >= to_fetch_file_name.size()) {
@@ -397,7 +397,7 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
 
       // last thread
       if(fetch_file_data->unfinished_thread_cnt_.fetch_sub(1) == 1) {
-        stop_warm_up_.store(true, std::memory_order_release);
+        warm_up_is_running_.store(false, std::memory_order_release);
       }
 
       Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
@@ -405,7 +405,6 @@ Status DBCloudImpl::WarmUp(size_t max_warm_up_threads)
     };
 
   assert(warm_up_threads_.empty());
-  assert(stop_warm_up_.load(std::memory_order_relaxed) == false);
 
   for (size_t idx = 0; idx < max_warm_up_threads; idx++) {
     warm_up_threads_.emplace_back(load_handlers_func);

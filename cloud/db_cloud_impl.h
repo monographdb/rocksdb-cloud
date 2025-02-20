@@ -48,7 +48,7 @@ class DBCloudImpl : public DBCloud {
 
   std::unique_ptr<Env> local_env_;
 
-  std::atomic<bool> stop_warm_up_{true};
+  std::atomic<bool> warm_up_is_running_{false};
   std::vector<port::Thread> warm_up_threads_;
 };
 }  // namespace ROCKSDB_NAMESPACE
