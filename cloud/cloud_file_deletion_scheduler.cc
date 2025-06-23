@@ -23,6 +23,31 @@ CloudFileDeletionScheduler::~CloudFileDeletionScheduler() {
   // `LocalCloudScheduler` will remove the jobs in the queue when destructed
 }
 
+void CloudFileDeletionScheduler::CancelAllJobs() {
+  // No lock should be needed here, because this function is called
+  // only when the `CloudFileDeletionScheduler` is being destructed,
+  // and no other thread should be accessing `files_to_delete_` at this point.
+  // Otherwise, deadlock happen if the lock is acquired here, conflicting with
+  // DoDeleteFile() which been called in the scheduled job.
+  std::vector<int> handles_to_cancel;
+  {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    handles_to_cancel.reserve(files_to_delete_.size());
+    for (const auto& [file, handle] : files_to_delete_) {
+      handles_to_cancel.push_back(handle);
+    }
+  }
+
+  for (const auto& handle : handles_to_cancel) {
+    scheduler_->CancelJob(handle);
+  }
+
+  {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    files_to_delete_.clear();
+  }
+}
+
 void CloudFileDeletionScheduler::UnscheduleFileDeletion(const std::string& filename) {
   std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
   auto itr = files_to_delete_.find(filename);

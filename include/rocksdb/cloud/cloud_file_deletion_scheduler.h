@@ -7,6 +7,8 @@
 #include <mutex>
 #include <vector>
 #include "rocksdb/io_status.h"
+#include "rocksdb/env.h"
+
 
 namespace ROCKSDB_NAMESPACE {
 class CloudScheduler;
@@ -28,12 +30,18 @@ class CloudFileDeletionScheduler
 
   ~CloudFileDeletionScheduler();
 
+  // Cancel all scheduled jobs before destruction.
+  // Otherwise, the jobs will be executed after the destruction of the cfs object,
+  // which can cause a crash.
+  void CancelAllJobs();
+
   void UnscheduleFileDeletion(const std::string& filename);
   using FileDeletionRunnable = std::function<void()>;
   // Schedule the file deletion runnable(which actually delets the file from
   // cloud) to be executed in the future (specified by `file_deletion_delay_`).
   rocksdb::IOStatus ScheduleFileDeletion(const std::string& filename,
                                          FileDeletionRunnable runnable);
+
 
 #ifndef NDEBUG
   size_t TEST_NumScheduledJobs() const;

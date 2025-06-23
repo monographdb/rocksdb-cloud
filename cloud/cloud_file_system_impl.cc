@@ -47,13 +47,28 @@ CloudFileSystemImpl::CloudFileSystemImpl(
 }
 
 CloudFileSystemImpl::~CloudFileSystemImpl() {
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[%s] CloudFileSystemImpl::~CloudFileSystemImpl: Destroying CloudFileSystemImpl",
+      Name());
   if (cloud_fs_options.cloud_log_controller) {
     cloud_fs_options.cloud_log_controller->StopTailingStream();
   }
   StopPurger();
   FileCachePurge();
   cloud_fs_options.cloud_log_controller.reset();
+  // Force to cancel all scheduled file deletions jobs before destruction.
+  // Since the jobs can reference this object through the storage provider,
+  // we need to ensure that the jobs are cancelled before the destruction
+  // of this object.
+  if (cloud_file_deletion_scheduler_) {
+    // Cancel all scheduled jobs before destruction
+    // otherwise, the jobs will be executed after the destruction of the cfs object,
+    // which can cause a crash.
+    cloud_file_deletion_scheduler_->CancelAllJobs();
+    cloud_file_deletion_scheduler_.reset();
+  }
   cloud_fs_options.storage_provider.reset();
+  LogFlush(info_log_);
 }
 
 IOStatus CloudFileSystemImpl::ExistsCloudObject(const std::string& fname) {
@@ -67,6 +82,10 @@ IOStatus CloudFileSystemImpl::ExistsCloudObject(const std::string& fname) {
                                                  srcname(fname));
   }
   return st;
+}
+
+void CloudFileSystemImpl::SetLogger(std::shared_ptr<Logger> l) {
+  info_log_ = std::move(l);
 }
 
 IOStatus CloudFileSystemImpl::GetCloudObject(const std::string& fname) {
