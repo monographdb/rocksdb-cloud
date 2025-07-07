@@ -1,15 +1,14 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 
-#include "rocksdb/cloud/cloud_file_deletion_scheduler.h"
-
 #include "cloud/cloud_scheduler.h"
+#include "rocksdb/cloud/cloud_file_deletion_scheduler.h"
 #include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<CloudFileDeletionScheduler> CloudFileDeletionScheduler::Create(
-     const std::shared_ptr<CloudScheduler>& scheduler,
-     std::chrono::seconds file_deletion_delay) {
+    const std::shared_ptr<CloudScheduler>& scheduler,
+    std::chrono::seconds file_deletion_delay) {
   return std::make_shared<CloudFileDeletionScheduler>(PrivateTag(), scheduler,
                                                       file_deletion_delay);
 }
@@ -25,20 +24,14 @@ CloudFileDeletionScheduler::~CloudFileDeletionScheduler() {
 
 void CloudFileDeletionScheduler::CancelAllJobs() {
   std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-  Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[CloudFileDeletionScheduler] CloudFileDeletionScheduler::CancelAllJobs: "
-      "Cancelling all scheduled jobs, size: %zu, schduler_.use_count: %zu",
-      files_to_delete_.size(), scheduler_.use_count());
   for (const auto& [file, handle] : files_to_delete_) {
-    Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[CloudFileDeletionScheduler] CloudFileDeletionScheduler::CancelAllJobs: "
-        "Cancelling job for file: %s, handle: %d", file.c_str(), handle);
     scheduler_->CancelJob(handle);
   }
   files_to_delete_.clear();
 }
 
-void CloudFileDeletionScheduler::UnscheduleFileDeletion(const std::string& filename) {
+void CloudFileDeletionScheduler::UnscheduleFileDeletion(
+    const std::string& filename) {
   std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
   auto itr = files_to_delete_.find(filename);
   if (itr != files_to_delete_.end()) {
@@ -50,7 +43,8 @@ void CloudFileDeletionScheduler::UnscheduleFileDeletion(const std::string& filen
 rocksdb::IOStatus CloudFileDeletionScheduler::ScheduleFileDeletion(
     const std::string& fname, FileDeletionRunnable runnable) {
   auto wp = this->weak_from_this();
-  auto doDeleteFile = [wp = std::move(wp), fname, runnable = std::move(runnable)](void*) {
+  auto doDeleteFile = [wp = std::move(wp), fname,
+                       runnable = std::move(runnable)](void*) {
     TEST_SYNC_POINT(
         "CloudFileDeletionScheduler::ScheduleFileDeletion:BeforeFileDeletion");
     auto sp = wp.lock();
@@ -62,7 +56,7 @@ rocksdb::IOStatus CloudFileDeletionScheduler::ScheduleFileDeletion(
     TEST_SYNC_POINT_CALLBACK(
         "CloudFileDeletionScheduler::ScheduleFileDeletion:AfterFileDeletion",
         &file_deleted);
-    (void) file_deleted;
+    (void)file_deleted;
   };
 
   {
@@ -100,4 +94,4 @@ size_t CloudFileDeletionScheduler::TEST_NumScheduledJobs() const {
 }
 #endif
 
-}
+}  // namespace ROCKSDB_NAMESPACE
